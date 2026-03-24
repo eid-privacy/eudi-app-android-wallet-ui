@@ -16,6 +16,7 @@
 
 package eu.europa.ec.corelogic.controller
 
+import android.os.Environment
 import androidx.core.net.toUri
 import eu.europa.ec.authenticationlogic.controller.authentication.DeviceAuthenticationResult
 import eu.europa.ec.authenticationlogic.model.BiometricCrypto
@@ -46,7 +47,9 @@ import eu.europa.ec.eudi.wallet.document.DocumentExtensions.getDefaultCreateDocu
 import eu.europa.ec.eudi.wallet.document.DocumentExtensions.getDefaultKeyUnlockData
 import eu.europa.ec.eudi.wallet.document.DocumentId
 import eu.europa.ec.eudi.wallet.document.IssuedDocument
+import eu.europa.ec.eudi.wallet.document.format.MsoMdocData
 import eu.europa.ec.eudi.wallet.document.format.MsoMdocFormat
+import eu.europa.ec.eudi.wallet.document.format.SdJwtVcData
 import eu.europa.ec.eudi.wallet.document.format.SdJwtVcFormat
 import eu.europa.ec.eudi.wallet.issue.openid4vci.DeferredIssueResult
 import eu.europa.ec.eudi.wallet.issue.openid4vci.IssueEvent
@@ -61,15 +64,20 @@ import eu.europa.ec.storagelogic.dao.TransactionLogDao
 import eu.europa.ec.storagelogic.model.Bookmark
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.channels.trySendBlocking
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 import java.net.URLDecoder
 import java.util.Locale
 
@@ -199,6 +207,8 @@ interface WalletCoreDocumentsController {
     suspend fun deleteBookmark(bookmarkId: DocumentId)
 
     suspend fun isDocumentLowOnCredentials(document: IssuedDocument): Boolean
+
+    suspend fun exportDocument(documentId: DocumentId): Result<String>
 }
 
 class WalletCoreDocumentsControllerImpl(
@@ -239,10 +249,18 @@ class WalletCoreDocumentsControllerImpl(
         return withContext(dispatcher) {
             runCatching {
 
+                val metadataResults = coroutineScope {
+                    openId4VciManagers.map { (vciConfig, manager) ->
+                        async {
+                            vciConfig to manager.getIssuerMetadata()
+                        }
+                    }.awaitAll()
+                }
+
                 val metadata: Map<VciConfig, CredentialIssuerMetadata> =
-                    openId4VciManagers.mapValues { (_, manager) ->
-                        manager.getIssuerMetadata().getOrThrow()
-                    }
+                    metadataResults.mapNotNull { (vciConfig, result) ->
+                        result.getOrNull()?.let { vciConfig to it }
+                    }.toMap()
 
                 val documents: List<ScopedDocumentDomain> =
                     metadata.flatMap { (vciConfig, meta) ->
@@ -654,6 +672,37 @@ class WalletCoreDocumentsControllerImpl(
 
     override suspend fun resolveDocumentStatus(document: IssuedDocument): Result<Status> =
         eudiWallet.resolveStatus(document)
+
+    override suspend fun exportDocument(documentId: DocumentId): Result<String> = withContext(dispatcher) {
+        runCatching {
+            val document = eudiWallet.getDocumentById(documentId) as? IssuedDocument
+                ?: throw IllegalStateException("Document not found")
+
+            val (data: ByteArray, extension: String) = when (val docData = document.data) {
+                is MsoMdocData -> {
+                    val credential = document.getCredentials().firstOrNull()
+                    val issuerProvidedData = credential?.issuerProvidedData
+                        ?: throw IllegalStateException("No valid credential found")
+                    issuerProvidedData to "mdoc"
+                }
+                is SdJwtVcData -> {
+                    docData.sdJwtVc.toByteArray() to "sd-jwt"
+                }
+                else -> throw IllegalStateException("Unsupported document format")
+            }
+
+            val fileName = "${document.name.replace(" ", "_")}_${document.id}.$extension"
+            val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (!downloadDir.exists()) {
+                downloadDir.mkdirs()
+            }
+            val file = File(downloadDir, fileName)
+            FileOutputStream(file).use {
+                it.write(data)
+            }
+            file.absolutePath
+        }
+    }
 
     private fun issueDocumentsWithOpenId4VCI(
         configIds: List<String>,

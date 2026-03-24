@@ -16,6 +16,7 @@
 
 package eu.europa.ec.dashboardfeature.ui.documents.detail
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -35,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -184,10 +186,9 @@ private fun getToolbarConfig(
                     throttleClicks = true,
                 ),
                 ToolbarActionUi(
-                    text = stringResource(R.string.document_details_toolbar_action_reissue),
-                    icon = null,
-                    onClick = { onEventSend(Event.IssuerDetails.OnActionButtonClicked) },
-                    enabled = !state.isLoading && state.issuerDetails?.documentState != IssuerDetailsCardDataUi.DocumentState.Revoked,
+                    icon = AppIcons.Download,
+                    onClick = { onEventSend(Event.ExportPressed) },
+                    enabled = !state.isLoading,
                     throttleClicks = true,
                 ),
                 ToolbarActionUi(
@@ -201,7 +202,7 @@ private fun getToolbarConfig(
         } else {
             emptyList()
         },
-        maxVisibleActions = 1
+        maxVisibleActions = 2
     )
 }
 
@@ -235,6 +236,7 @@ private fun Content(
     coroutineScope: CoroutineScope,
     modalBottomSheetState: SheetState,
 ) {
+    val context = LocalContext.current
     state.documentDetailsUi?.let { safeDocumentDetailsUi ->
         Column(
             modifier = Modifier
@@ -311,6 +313,14 @@ private fun Content(
 
                 is Effect.BookmarkRemoved -> {
                     onEventSend(Event.OnBookmarkRemoved)
+                }
+
+                is Effect.DocumentExported -> {
+                    Toast.makeText(context, "Document exported to: ${effect.filePath}", Toast.LENGTH_LONG).show()
+                }
+
+                is Effect.DocumentExportFailed -> {
+                    Toast.makeText(context, "Export failed: ${effect.errorMessage}", Toast.LENGTH_LONG).show()
                 }
             }
         }.collect()

@@ -71,6 +71,11 @@ sealed class DocumentDetailsInteractorDeleteBookmarkPartialState {
     data object Failure : DocumentDetailsInteractorDeleteBookmarkPartialState()
 }
 
+sealed class DocumentDetailsInteractorExportDocumentPartialState {
+    data class Success(val filePath: String) : DocumentDetailsInteractorExportDocumentPartialState()
+    data class Failure(val errorMessage: String) : DocumentDetailsInteractorExportDocumentPartialState()
+}
+
 interface DocumentDetailsInteractor {
     fun getDocumentDetails(
         documentId: DocumentId,
@@ -88,6 +93,10 @@ interface DocumentDetailsInteractor {
     fun deleteBookmark(
         documentId: String
     ): Flow<DocumentDetailsInteractorDeleteBookmarkPartialState>
+
+    fun exportDocument(
+        documentId: DocumentId
+    ): Flow<DocumentDetailsInteractorExportDocumentPartialState>
 }
 
 class DocumentDetailsInteractorImpl(
@@ -233,5 +242,15 @@ class DocumentDetailsInteractorImpl(
             emit(DocumentDetailsInteractorDeleteBookmarkPartialState.Success)
         }.safeAsync {
             DocumentDetailsInteractorDeleteBookmarkPartialState.Failure
+        }
+
+    override fun exportDocument(documentId: DocumentId): Flow<DocumentDetailsInteractorExportDocumentPartialState> =
+        flow {
+            walletCoreDocumentsController.exportDocument(documentId).fold(
+                onSuccess = { emit(DocumentDetailsInteractorExportDocumentPartialState.Success(it)) },
+                onFailure = { emit(DocumentDetailsInteractorExportDocumentPartialState.Failure(it.localizedMessage ?: genericErrorMsg)) }
+            )
+        }.safeAsync {
+            DocumentDetailsInteractorExportDocumentPartialState.Failure(it.localizedMessage ?: genericErrorMsg)
         }
 }

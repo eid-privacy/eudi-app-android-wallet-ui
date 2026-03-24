@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 European Commission
+ * Copyright (c) 2025 European Commission
  *
  * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
  * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
@@ -21,9 +21,9 @@ import android.os.Bundle
 fun Bundle?.toMapOrEmpty(): Map<String, String> {
     return this?.let { bundle ->
         mutableMapOf<String, String>().apply {
-            bundle.keySet().forEach {
-                bundle.getString(it)?.let { value ->
-                    put(it, value)
+            bundle.keySet().forEach { key ->
+                bundle.get(key)?.let { value ->
+                    put(key, value.toString())
                 }
             }
         }

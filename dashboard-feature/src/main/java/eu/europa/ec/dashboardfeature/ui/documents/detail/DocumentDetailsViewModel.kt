@@ -23,6 +23,7 @@ import eu.europa.ec.corelogic.model.FormatType
 import eu.europa.ec.dashboardfeature.interactor.DocumentDetailsInteractor
 import eu.europa.ec.dashboardfeature.interactor.DocumentDetailsInteractorDeleteBookmarkPartialState
 import eu.europa.ec.dashboardfeature.interactor.DocumentDetailsInteractorDeleteDocumentPartialState
+import eu.europa.ec.dashboardfeature.interactor.DocumentDetailsInteractorExportDocumentPartialState
 import eu.europa.ec.dashboardfeature.interactor.DocumentDetailsInteractorPartialState
 import eu.europa.ec.dashboardfeature.interactor.DocumentDetailsInteractorStoreBookmarkPartialState
 import eu.europa.ec.dashboardfeature.ui.documents.detail.model.DocumentDetailsUi
@@ -93,6 +94,8 @@ sealed class Event : ViewEvent {
         data object OnExpandedStateChanged : IssuerDetails()
         data object OnActionButtonClicked : IssuerDetails()
     }
+
+    data object ExportPressed : Event()
 }
 
 sealed class Effect : ViewSideEffect {
@@ -110,6 +113,9 @@ sealed class Effect : ViewSideEffect {
 
     data object BookmarkStored : Effect()
     data object BookmarkRemoved : Effect()
+
+    data class DocumentExported(val filePath: String) : Effect()
+    data class DocumentExportFailed(val errorMessage: String) : Effect()
 }
 
 sealed class DocumentDetailsBottomSheetContent {
@@ -218,6 +224,8 @@ class DocumentDetailsViewModel(
                     handleIssuerDetailsAction(documentState = safeDocumentState)
                 }
             }
+
+            is Event.ExportPressed -> exportDocument()
         }
     }
 
@@ -462,6 +470,21 @@ class DocumentDetailsViewModel(
 
             is IssuerDetailsCardDataUi.DocumentState.Revoked -> {
                 // No-op
+            }
+        }
+    }
+
+    private fun exportDocument() {
+        viewModelScope.launch {
+            documentDetailsInteractor.exportDocument(documentId).collect { response ->
+                when (response) {
+                    is DocumentDetailsInteractorExportDocumentPartialState.Success -> {
+                        setEffect { Effect.DocumentExported(response.filePath) }
+                    }
+                    is DocumentDetailsInteractorExportDocumentPartialState.Failure -> {
+                        setEffect { Effect.DocumentExportFailed(response.errorMessage) }
+                    }
+                }
             }
         }
     }
